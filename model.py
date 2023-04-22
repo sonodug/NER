@@ -1,8 +1,11 @@
+import json
+
 import spacy
 import random
 import warnings
 import argparse
 import parse
+import numpy as np
 from spacy.util import minibatch, compounding
 from pathlib import Path
 from spacy.training.example import Example
@@ -45,8 +48,51 @@ class NER:
                 print('  Losses:', losses['ner'])
                 print()
 
-    def predict(self, file):
-        print(file)
+    def predict(self, file, out_dir, verbose, is_json=True):
+        if is_json:
+            doc = self.nlp(file['text'])
+            if len(doc.ents) != 0:
+                for ent in doc.ents:
+                    if ent.label_ == file['label']:
+                        entity = ent
+                    else:
+                        print('Nothing')
+                        return
+                answer_start = file['text'].find(entity.text)
+                answer_end = answer_start + len(entity.text)
+                file['extracted_part'] = {'text': [entity.text],
+                                          'answer_start': [answer_start],
+                                          'answer_end': [answer_end]}
+
+                with open(out_dir + '/predictions.json', 'w') as f:
+                    json.dump(file, f, ensure_ascii=False, indent=2)
+        else:
+            test_extracted_part = []
+
+            for data in file:
+                doc = self.nlp(data["text"])
+
+                if len(doc.ents) != 0:
+                    for ent in doc.ents:
+                        if ent.label_ == data['label']:
+                            entity = ent
+                    answer_start = data['text'].find(entity.text)
+                    answer_end = answer_start + len(entity.text)
+                    test_extracted_part.append({'id': data['id'], 'text': data['text'], 'label': data['label'],
+                                                'extracted_part': {'text': [entity.text],
+                                                                   'answer_start': [answer_start],
+                                                                   'answer_end': [answer_end]}})
+                else:
+                    test_extracted_part.append({'id': data['id'], 'text': data['text'], 'label': data['label'],
+                                                'extracted_part': {'text': [""], 'answer_start': [0],
+                                                                   'answer_end': [0]}})
+
+                with open(out_dir + '/predictions.json', 'w') as f:
+                    json.dump(test_extracted_part, f, ensure_ascii=False, indent=2, cls=NpEncoder)
+
+                if verbose:
+                    print(test_extracted_part[:5])
+                    print(".....")
 
     def eval_metrics(self, test_data):
         print()
@@ -55,19 +101,30 @@ class NER:
         print()
 
 
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
+
+
 def run(args, ner):
     if args.predict:
-        if (args.input == "./example/input.json"):
+        if args.input == "default":
             print("Id:")
             id = int(input())
             print("Text:")
             text = input()
             print("Label:")
             label = input()
-            dct = parse.text_to_dict(id, text, label)
-            ner.predict(dct)
+            dct = parse.to_dict(id, text, label)
+            ner.predict(dct, args.out, args.verbose, is_json=True)
         else:
-            ner.predict(args.input)
+            ner.predict(args.input, args.out, args.verbose, is_json=False)
 
 
 def get_args():
@@ -80,11 +137,13 @@ def get_args():
                                                 "or from a json file",
                         action="store_true")
     parser.add_argument("-i", "--input", help="path to file in json with input data for predict",
-                        metavar="path", type=str, default="./example/input.json")
+                        metavar="path", type=str, default="default")
     parser.add_argument("-sf", "--samples", help="path to file in json with train samples for fit",
                         metavar="path", type=str, default="./example/train_data.json")
     parser.add_argument("-o", "--out", help="path for output in predictions.json",
-                        metavar="path", type=str, default="./output/")
+                        metavar="path", type=str, default="output_data")
+    parser.add_argument("-v", "--verbose", help="verbose output",
+                        action="store_true")
 
     return parser.parse_args()
 

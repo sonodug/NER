@@ -20,5 +20,5 @@ def prepare_train(file):
     return formatted_data
 
 
-def text_to_dict(id, text, label):
+def to_dict(id, text, label):
     return {"id": id, "text": text, "label": label}
