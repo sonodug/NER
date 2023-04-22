@@ -11,6 +11,7 @@ from pathlib import Path
 from spacy.training.example import Example
 from tqdm import tqdm
 from spacy.scorer import Scorer
+from os import makedirs, listdir
 
 TRAIN_DATA_PATH = "./data/train.json"
 pipe_exceptions = ["ner", "trf_wordpiecer", "trf_tok2vec"]
@@ -48,28 +49,40 @@ class NER:
                 print('  Losses:', losses['ner'])
                 print()
 
-    def predict(self, file, out_dir, verbose, is_json=True):
+    def predict(self, file_path, out_dir, verbose, is_json=True):
+        try:
+            makedirs(out_dir)
+        except FileExistsError:
+            pass
+
         if is_json:
-            doc = self.nlp(file['text'])
+            doc = self.nlp(file_path['text'])
             if len(doc.ents) != 0:
                 for ent in doc.ents:
-                    if ent.label_ == file['label']:
+                    if ent.label_ == file_path['label']:
                         entity = ent
                     else:
                         print('Nothing')
                         return
-                answer_start = file['text'].find(entity.text)
+                answer_start = file_path['text'].find(entity.text)
                 answer_end = answer_start + len(entity.text)
-                file['extracted_part'] = {'text': [entity.text],
+                file_path['extracted_part'] = {'text': [entity.text],
                                           'answer_start': [answer_start],
                                           'answer_end': [answer_end]}
 
-                with open(out_dir + '/predictions.json', 'w') as f:
-                    json.dump(file, f, ensure_ascii=False, indent=2)
+                with open(out_dir + 'predictions.json', 'w') as f:
+                    json.dump(file_path, f, ensure_ascii=False, indent=2)
+
+                if verbose:
+                    print(f"\nResult:\n{file_path['extracted_part']}")
+
         else:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                test_data = json.load(f)
+
             test_extracted_part = []
 
-            for data in file:
+            for data in test_data:
                 doc = self.nlp(data["text"])
 
                 if len(doc.ents) != 0:
@@ -87,11 +100,14 @@ class NER:
                                                 'extracted_part': {'text': [""], 'answer_start': [0],
                                                                    'answer_end': [0]}})
 
-                with open(out_dir + '/predictions.json', 'w') as f:
-                    json.dump(test_extracted_part, f, ensure_ascii=False, indent=2, cls=NpEncoder)
+                with open(out_dir + 'predictions.json', 'w') as f:
+                    json.dump(file_path, f, ensure_ascii=False, indent=2, cls=NpEncoder)
 
                 if verbose:
-                    print(test_extracted_part[:5])
+                    verbose_count = 5
+                    for i in len(verbose_count + 1):
+                        print(test_extracted_part[i]['extracted_part'])
+
                     print(".....")
 
     def eval_metrics(self, test_data):
@@ -115,11 +131,11 @@ class NpEncoder(json.JSONEncoder):
 def run(args, ner):
     if args.predict:
         if args.input == "default":
-            print("Id:")
+            print("\nId:")
             id = int(input())
-            print("Text:")
+            print("\nText:")
             text = input()
-            print("Label:")
+            print("\nLabel:")
             label = input()
             dct = parse.to_dict(id, text, label)
             ner.predict(dct, args.out, args.verbose, is_json=True)
@@ -141,7 +157,7 @@ def get_args():
     parser.add_argument("-sf", "--samples", help="path to file in json with train samples for fit",
                         metavar="path", type=str, default="./example/train_data.json")
     parser.add_argument("-o", "--out", help="path for output in predictions.json",
-                        metavar="path", type=str, default="output_data")
+                        metavar="path", type=str, default="./output_data/")
     parser.add_argument("-v", "--verbose", help="verbose output",
                         action="store_true")
 
