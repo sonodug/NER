@@ -1,7 +1,7 @@
 import json
 
 
-def prepare_train(file):
+def prepare_data(file):
     with open(file, 'r', encoding='utf-8') as f:
         train_data = json.load(f)
 

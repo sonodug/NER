@@ -1,5 +1,4 @@
 import json
-
 import spacy
 import random
 import warnings
@@ -7,37 +6,41 @@ import argparse
 import parse
 import numpy as np
 from spacy.util import minibatch, compounding
-from pathlib import Path
 from spacy.training.example import Example
 from tqdm import tqdm
 from spacy.scorer import Scorer
-from os import makedirs, listdir
+from os import makedirs
 
-TRAIN_DATA_PATH = "./data/train.json"
+DEFAULT_TRAIN_DATA_PATH = "./data/train.json"
+DEFAULT_EVAL_DATA_PATH = "./data/eval_cropped.json"
 pipe_exceptions = ["ner", "trf_wordpiecer", "trf_tok2vec"]
+labels = ["обеспечение исполнения контракта", "обеспечение гарантийных обязательств"]
 
 
 class NER:
     def __init__(self, pipe_exceptions=pipe_exceptions):
         self.nlp = spacy.load('ner_model')
         self.ner = self.nlp.get_pipe("ner")
+        self.unaffected_pipes = [pipe for pipe in self.nlp.pipe_names if pipe not in pipe_exceptions]
 
-        self.prepared_data = parse.prepare_train(TRAIN_DATA_PATH)
+        for label in labels:
+            self.ner.add_label(label)
 
-        for _, annotations in self.prepared_data:
+    def fit(self, data_path=DEFAULT_TRAIN_DATA_PATH, batch_size=compounding(4.0, 32.0, 1.001), iterations=2,
+            dropout_rate=0.3):
+        prepared_data = parse.prepare_data(data_path)
+
+        for _, annotations in prepared_data:
             for ent in annotations.get("entities"):
                 self.ner.add_label(ent[2])
 
-        self.unaffected_pipes = [pipe for pipe in self.nlp.pipe_names if pipe not in pipe_exceptions]
-
-    def fit(self, batch_size=compounding(4.0, 32.0, 1.001), iterations=10, dropout_rate=0.3):
         with self.nlp.disable_pipes(*self.unaffected_pipes):
             warnings.filterwarnings("ignore", category=UserWarning, module='spacy')
-            for iteration in range(iterations):
-                random.shuffle(self.prepared_data)
+            for iteration in range(1, iterations + 1):
+                random.shuffle(prepared_data)
                 losses = {}
-                batches = minibatch(self.prepared_data, size=batch_size)
-                progress_bar = tqdm(total=len(self.prepared_data), desc=f"Iteration {iteration}", leave=False)
+                batches = minibatch(prepared_data, size=batch_size)
+                progress_bar = tqdm(total=len(prepared_data), bar_format='{l_bar}{bar:20}{r_bar}{bar:-10b}', desc=f"Iteration {iteration}", leave=False)
                 for batch in batches:
                     for text, annotations in batch:
                         doc = self.nlp.make_doc(text)
@@ -67,8 +70,8 @@ class NER:
                 answer_start = file_path['text'].find(entity.text)
                 answer_end = answer_start + len(entity.text)
                 file_path['extracted_part'] = {'text': [entity.text],
-                                          'answer_start': [answer_start],
-                                          'answer_end': [answer_end]}
+                                               'answer_start': [answer_start],
+                                               'answer_end': [answer_end]}
 
                 with open(out_dir + 'predictions.json', 'w') as f:
                     json.dump(file_path, f, ensure_ascii=False, indent=2)
@@ -100,20 +103,37 @@ class NER:
                                                 'extracted_part': {'text': [""], 'answer_start': [0],
                                                                    'answer_end': [0]}})
 
-                with open(out_dir + 'predictions.json', 'w') as f:
-                    json.dump(file_path, f, ensure_ascii=False, indent=2, cls=NpEncoder)
+            with open(out_dir + 'predictions.json', 'w', encoding="utf-8") as f:
+                json.dump(test_extracted_part, f, ensure_ascii=False, indent=2, cls=NpEncoder)
 
-                if verbose:
-                    verbose_count = 5
-                    for i in len(verbose_count + 1):
-                        print(test_extracted_part[i]['extracted_part'])
+            if verbose:
+                verbose_count = 6 if len(test_extracted_part) > 5 else len(test_extracted_part)
 
-                    print(".....")
+                for i in range(verbose_count):
+                    print(test_extracted_part[i]['extracted_part'])
 
-    def eval_metrics(self, test_data):
-        print()
+                print(f".....{len(test_extracted_part) - verbose_count} more elements")
 
-    def eval_loss(self, test_data):
+    def evaluate(self, data_path=DEFAULT_TRAIN_DATA_PATH):
+        warnings.filterwarnings("ignore", category=UserWarning, module='spacy')
+
+        prep_data = parse.prepare_data(data_path)
+        scorer = Scorer()
+        examples = []
+
+        for text, annotations in prep_data:
+            predict = self.nlp(text)
+            example = Example.from_dict(predict, annotations)
+            example.predicted = self.nlp(str(example.predicted))
+            examples.append(example)
+
+        scores = scorer.score_spans(examples, "ents")
+        print("\nPrecision: {} \nRecall: {} \nF1-score: {}\n".format(scores['ents_p'],
+                                                                 scores['ents_r'],
+                                                                 scores['ents_f']))
+
+
+    def rollback(self):
         print()
 
 
@@ -128,7 +148,7 @@ class NpEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def run(args, ner):
+def run(args, ner_model):
     if args.predict:
         if args.input == "default":
             print("\nId:")
@@ -138,9 +158,25 @@ def run(args, ner):
             print("\nLabel:")
             label = input()
             dct = parse.to_dict(id, text, label)
-            ner.predict(dct, args.out, args.verbose, is_json=True)
+            ner_model.predict(dct, args.out, args.verbose, is_json=True)
         else:
-            ner.predict(args.input, args.out, args.verbose, is_json=False)
+            ner_model.predict(args.input, args.out, args.verbose, is_json=False)
+
+    if args.fit:
+        if args.input == 'default':
+            path = DEFAULT_TRAIN_DATA_PATH
+            ner_model.fit(path)
+        else:
+            path = args.input
+            ner_model.fit(path)
+
+    if args.evaluate:
+        if args.input == 'default':
+            path = DEFAULT_EVAL_DATA_PATH
+            ner_model.evaluate(path)
+        else:
+            path = args.input
+            ner_model.evaluate(path)
 
 
 def get_args():
@@ -148,16 +184,20 @@ def get_args():
         description="NER",
         epilog="Hi")
 
-    parser.add_argument("-p", "--predict", help="use it for prediction from a text input:\n"
-                                                "(id, text, label: (обеспечение исполнения контракта | обеспечение гарантийных обязательств)\n"
-                                                "or from a json file",
+    parser.add_argument("-p", "--predict", help="""use it for prediction from a text input:
+                                                (id, text, label: (обеспечение исполнения контракта | обеспечение гарантийных обязательств)
+                                                or from a json file""",
                         action="store_true")
-    parser.add_argument("-i", "--input", help="path to file in json with input data for predict",
+    parser.add_argument("-f", "--fit", help="use it for training model",
+                        action="store_true")
+    parser.add_argument("-e", "--evaluate", help="use it to evaluate model performance",
+                        action="store_true")
+    parser.add_argument("-i", "--input", help="path to file in json with input data for fit / predict / evaluate",
                         metavar="path", type=str, default="default")
-    parser.add_argument("-sf", "--samples", help="path to file in json with train samples for fit",
-                        metavar="path", type=str, default="./example/train_data.json")
     parser.add_argument("-o", "--out", help="path for output in predictions.json",
                         metavar="path", type=str, default="./output_data/")
+    parser.add_argument("-r", "--rollback", help="return the model to its original state",
+                        action="store_true")
     parser.add_argument("-v", "--verbose", help="verbose output",
                         action="store_true")
 
