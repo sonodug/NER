@@ -37,7 +37,7 @@ class NER:
             self.ner.add_label(label)
 
     # A function to train model
-    def fit(self, data_path=DEFAULT_TRAIN_DATA_PATH, batch_size=compounding(4.0, 32.0, 1.001), iterations=5,
+    def fit(self, data_path=DEFAULT_TRAIN_DATA_PATH, batch_size=compounding(4.0, 32.0, 1.001), iterations=1,
             dropout_rate=0.3):
         prepared_data = parse.prepare_data(data_path)
 
@@ -213,10 +213,24 @@ def run(args, ner_model):
     if args.fit:
         if args.input == 'default':
             path = DEFAULT_TRAIN_DATA_PATH
-            ner_model.fit(path)
+            if args.iter is None and args.drop is None:
+                ner_model.fit(path)
+            elif args.iter is None and args.drop is not None:
+                ner_model.fit(path, dropout_rate=args.drop)
+            elif args.iter is not None and args.drop is None:
+                ner_model.fit(path, iterations=args.iter)
+            else:
+                ner_model.fit(path, iterations=args.iter, dropout_rate=args.drop)
         else:
             path = args.input
-            ner_model.fit(path)
+            if args.iter is None and args.drop is None:
+                ner_model.fit(path)
+            elif args.iter is None and args.drop is not None:
+                ner_model.fit(path, dropout_rate=args.drop)
+            elif args.iter is not None and args.drop is None:
+                ner_model.fit(path, iterations=args.iter)
+            else:
+                ner_model.fit(path, iterations=args.iter, dropout_rate=args.drop)
 
     # Evaluating the model
     if args.evaluate:
@@ -244,11 +258,13 @@ def get_args():
                         action="store_true")
     parser.add_argument("-f", "--fit", help="use it for training model",
                         action="store_true")
+    parser.add_argument("-it", "--iter", help="Number of iterations during training", type=int)
+    parser.add_argument("-d", "--drop", help="Dropout rate", type=int)
     parser.add_argument("-e", "--evaluate", help="use it to evaluate model performance",
                         action="store_true")
     parser.add_argument("-i", "--input", help="path to file in json with input data for fit / predict / evaluate",
                         metavar="path", type=str, default="default")
-    parser.add_argument("-o", "--out", help="path for output in predictions.json",
+    parser.add_argument("-o", "--out", help="path to output in predictions.json",
                         metavar="path", type=str, default="./output_data/")
     parser.add_argument("-r", "--rollback", help="return the model to its original state",
                         action="store_true")
