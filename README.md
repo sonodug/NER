@@ -62,6 +62,6 @@ To see how the model was trained, see `research.ipynb` jupiter notebook.<br />
 To see how to use the model, see `usage.ipynb` jupiter notebook.<br />
 See also the sample data in [examples_data](example_data).
 
-### The overall result of the work is `predictions.json` in [predictions](predictions)
+### The overall result of the work is `predictions.json` in [predictions](final_predictions)
 ## Sources
 - https://spacy.io/
