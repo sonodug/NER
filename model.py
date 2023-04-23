@@ -4,6 +4,7 @@ import random
 import warnings
 import argparse
 import parse
+import shutil
 import numpy as np
 from spacy.util import minibatch, compounding
 from spacy.training.example import Example
@@ -40,7 +41,8 @@ class NER:
                 random.shuffle(prepared_data)
                 losses = {}
                 batches = minibatch(prepared_data, size=batch_size)
-                progress_bar = tqdm(total=len(prepared_data), bar_format='{l_bar}{bar:20}{r_bar}{bar:-10b}', desc=f"Iteration {iteration}", leave=False)
+                progress_bar = tqdm(total=len(prepared_data), bar_format='{l_bar}{bar:20}{r_bar}{bar:-10b}',
+                                    desc=f"Iteration {iteration}", leave=False)
                 for batch in batches:
                     for text, annotations in batch:
                         doc = self.nlp.make_doc(text)
@@ -129,12 +131,19 @@ class NER:
 
         scores = scorer.score_spans(examples, "ents")
         print("\nPrecision: {} \nRecall: {} \nF1-score: {}\n".format(scores['ents_p'],
-                                                                 scores['ents_r'],
-                                                                 scores['ents_f']))
+                                                                     scores['ents_r'],
+                                                                     scores['ents_f']))
 
+    def rollback_changes(self):
+        src_dir = 'ner_model'
+        dst_dir = 'copy_ner_model'
 
-    def rollback(self):
-        print()
+        # copy the directory and its contents to the destination directory
+        shutil.copytree(src_dir, dst_dir)
+
+        # delete the previous directory and its contents
+        shutil.rmtree(src_dir)
+        shutil.move(dst_dir, 'ner_model')
 
 
 class NpEncoder(json.JSONEncoder):
@@ -177,6 +186,9 @@ def run(args, ner_model):
         else:
             path = args.input
             ner_model.evaluate(path)
+
+    if args.rollback:
+        ner_model.rollback_changes()
 
 
 def get_args():
