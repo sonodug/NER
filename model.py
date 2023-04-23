@@ -29,6 +29,7 @@ labels = ["обеспечение исполнения контракта", "о�
 class NER:
     # Initializing the class and loading the model
     def __init__(self, pipe_exceptions=pipe_exceptions):
+        shutil.copytree(SRC_MODEL_DIR, PRV_MODEL_DIR)
         self.nlp = spacy.load('ner_model')
         self.ner = self.nlp.get_pipe("ner")
         self.unaffected_pipes = [pipe for pipe in self.nlp.pipe_names if pipe not in pipe_exceptions]
