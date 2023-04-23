@@ -5,6 +5,7 @@ import warnings
 import argparse
 import parse
 import shutil
+import pathlib
 import numpy as np
 from spacy.util import minibatch, compounding
 from spacy.training.example import Example
@@ -14,6 +15,8 @@ from os import makedirs
 
 DEFAULT_TRAIN_DATA_PATH = "./data/train.json"
 DEFAULT_EVAL_DATA_PATH = "./data/eval_cropped.json"
+SRC_MODEL_DIR = 'ner_model'
+
 pipe_exceptions = ["ner", "trf_wordpiecer", "trf_tok2vec"]
 labels = ["обеспечение исполнения контракта", "обеспечение гарантийных обязательств"]
 
@@ -87,6 +90,11 @@ class NER:
 
             test_extracted_part = []
 
+            progress_bar = tqdm(total=len(test_data), bar_format='{l_bar}{bar:20}{r_bar}{bar:-10b}',
+                                desc=f"Predictions", leave=False)
+
+            progress_bar.update(1)
+
             for data in test_data:
                 doc = self.nlp(data["text"])
 
@@ -104,6 +112,7 @@ class NER:
                     test_extracted_part.append({'id': data['id'], 'text': data['text'], 'label': data['label'],
                                                 'extracted_part': {'text': [""], 'answer_start': [0],
                                                                    'answer_end': [0]}})
+                progress_bar.update(1)
 
             with open(out_dir + 'predictions.json', 'w', encoding="utf-8") as f:
                 json.dump(test_extracted_part, f, ensure_ascii=False, indent=2, cls=NpEncoder)
@@ -115,6 +124,9 @@ class NER:
                     print(test_extracted_part[i]['extracted_part'])
 
                 print(f".....{len(test_extracted_part) - verbose_count} more elements")
+
+            formatted_path = out_dir[1:].replace("/", "\\")
+            print(f"    \nPredictions at {pathlib.Path().resolve()}{formatted_path}predictions.json")
 
     def evaluate(self, data_path=DEFAULT_TRAIN_DATA_PATH):
         warnings.filterwarnings("ignore", category=UserWarning, module='spacy')
@@ -135,14 +147,13 @@ class NER:
                                                                      scores['ents_f']))
 
     def rollback_changes(self):
-        src_dir = 'ner_model'
         dst_dir = 'copy_ner_model'
 
         # copy the directory and its contents to the destination directory
-        shutil.copytree(src_dir, dst_dir)
+        shutil.copytree(SRC_MODEL_DIR, dst_dir)
 
         # delete the previous directory and its contents
-        shutil.rmtree(src_dir)
+        shutil.rmtree(SRC_MODEL_DIR)
         shutil.move(dst_dir, 'ner_model')
 
 
