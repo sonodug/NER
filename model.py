@@ -17,7 +17,8 @@ from os import makedirs
 # Setting default paths
 DEFAULT_TRAIN_DATA_PATH = "./example_data/train.json"
 DEFAULT_EVAL_DATA_PATH = "./example_data/eval_cropped.json"
-SRC_MODEL_DIR = 'ner_model'
+SRC_MODEL_DIR = 'reference_ner_model'
+PRV_MODEL_DIR = 'ner_model'
 
 # Defining exceptions and labels
 pipe_exceptions = ["ner", "trf_wordpiecer", "trf_tok2vec"]
@@ -40,7 +41,6 @@ class NER:
     def fit(self, data_path=DEFAULT_TRAIN_DATA_PATH, batch_size=compounding(4.0, 32.0, 1.001), iterations=1,
             dropout_rate=0.3):
         prepared_data = parse.prepare_data(data_path)
-
         # Adding the labels to the model
         for _, annotations in prepared_data:
             for ent in annotations.get("entities"):
@@ -123,6 +123,8 @@ class NER:
                     test_extracted_part.append({'id': data['id'], 'text': data['text'], 'label': data['label'],
                                                 'extracted_part': {'text': [""], 'answer_start': [0],
                                                                    'answer_end': [0]}})
+
+                tqdm._instances.clear()
                 progress_bar.update(1)
 
             with open(out_dir + 'predictions.json', 'w', encoding="utf-8") as f:
@@ -155,6 +157,7 @@ class NER:
             example = Example.from_dict(predict, annotations)
             example.predicted = self.nlp(str(example.predicted))
             examples.append(example)
+            tqdm._instances.clear()
             progress_bar.update(1)
 
         scores = scorer.score_spans(examples, "ents")
@@ -171,7 +174,7 @@ class NER:
         shutil.copytree(SRC_MODEL_DIR, dst_dir)
 
         # delete the previous directory and its contents
-        shutil.rmtree(SRC_MODEL_DIR)
+        shutil.rmtree(PRV_MODEL_DIR)
         shutil.move(dst_dir, 'ner_model')
 
 
@@ -250,16 +253,14 @@ def run(args, ner_model):
 def get_args():
     parser = argparse.ArgumentParser(
         description="NER",
-        epilog="Hi")
+        epilog="Example: !python model.py -f -i ./example_data/train.json -it 2 -drop 0.2")
 
-    parser.add_argument("-p", "--predict", help="""use it for prediction from a text input:
-                                                (id, text, label: (обеспечение исполнения контракта | обеспечение гарантийных обязательств)
-                                                or from a json file""",
+    parser.add_argument("-p", "--predict", help="use it for prediction from a text input",
                         action="store_true")
     parser.add_argument("-f", "--fit", help="use it for training model",
                         action="store_true")
     parser.add_argument("-it", "--iter", help="Number of iterations during training", type=int)
-    parser.add_argument("-d", "--drop", help="Dropout rate", type=int)
+    parser.add_argument("-d", "--drop", help="Dropout rate", type=float)
     parser.add_argument("-e", "--evaluate", help="use it to evaluate model performance",
                         action="store_true")
     parser.add_argument("-i", "--input", help="path to file in json with input data for fit / predict / evaluate",
