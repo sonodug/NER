@@ -1,3 +1,4 @@
+# Importing libraries
 import json
 import spacy
 import random
@@ -13,31 +14,39 @@ from tqdm import tqdm
 from spacy.scorer import Scorer
 from os import makedirs
 
-DEFAULT_TRAIN_DATA_PATH = "./data/train.json"
-DEFAULT_EVAL_DATA_PATH = "./data/eval_cropped.json"
+# Setting default paths
+DEFAULT_TRAIN_DATA_PATH = "./example_data/train.json"
+DEFAULT_EVAL_DATA_PATH = "./example_data/eval_cropped.json"
 SRC_MODEL_DIR = 'ner_model'
 
+# Defining exceptions and labels
 pipe_exceptions = ["ner", "trf_wordpiecer", "trf_tok2vec"]
 labels = ["обеспечение исполнения контракта", "обеспечение гарантийных обязательств"]
 
 
+# Creating a class for NER
 class NER:
+    # Initializing the class and loading the model
     def __init__(self, pipe_exceptions=pipe_exceptions):
         self.nlp = spacy.load('ner_model')
         self.ner = self.nlp.get_pipe("ner")
         self.unaffected_pipes = [pipe for pipe in self.nlp.pipe_names if pipe not in pipe_exceptions]
 
+        # Adding the labels to the model
         for label in labels:
             self.ner.add_label(label)
 
-    def fit(self, data_path=DEFAULT_TRAIN_DATA_PATH, batch_size=compounding(4.0, 32.0, 1.001), iterations=2,
+    # A function to train model
+    def fit(self, data_path=DEFAULT_TRAIN_DATA_PATH, batch_size=compounding(4.0, 32.0, 1.001), iterations=5,
             dropout_rate=0.3):
         prepared_data = parse.prepare_data(data_path)
 
+        # Adding the labels to the model
         for _, annotations in prepared_data:
             for ent in annotations.get("entities"):
                 self.ner.add_label(ent[2])
 
+        # Disabling pipes that are not affected by NER training
         with self.nlp.disable_pipes(*self.unaffected_pipes):
             warnings.filterwarnings("ignore", category=UserWarning, module='spacy')
             for iteration in range(1, iterations + 1):
@@ -57,12 +66,14 @@ class NER:
                 print('  Losses:', losses['ner'])
                 print()
 
+    # A function to predict the label of a given text or json file
     def predict(self, file_path, out_dir, verbose, is_json=True):
         try:
             makedirs(out_dir)
         except FileExistsError:
             pass
 
+        # If the input is a json file
         if is_json:
             doc = self.nlp(file_path['text'])
             if len(doc.ents) != 0:
@@ -83,7 +94,7 @@ class NER:
 
                 if verbose:
                     print(f"\nResult:\n{file_path['extracted_part']}")
-
+        # If the input is a text file
         else:
             with open(file_path, 'r', encoding='utf-8') as f:
                 test_data = json.load(f)
@@ -91,7 +102,7 @@ class NER:
             test_extracted_part = []
 
             progress_bar = tqdm(total=len(test_data), bar_format='{l_bar}{bar:20}{r_bar}{bar:-10b}',
-                                desc=f"Predictions", leave=False)
+                                desc="Processing", leave=False)
 
             progress_bar.update(1)
 
@@ -128,6 +139,7 @@ class NER:
             formatted_path = out_dir[1:].replace("/", "\\")
             print(f"    \nPredictions at {pathlib.Path().resolve()}{formatted_path}predictions.json")
 
+    # A function for evaluating the model by the main metrics
     def evaluate(self, data_path=DEFAULT_TRAIN_DATA_PATH):
         warnings.filterwarnings("ignore", category=UserWarning, module='spacy')
 
@@ -135,18 +147,24 @@ class NER:
         scorer = Scorer()
         examples = []
 
+        progress_bar = tqdm(total=len(prep_data), bar_format='{l_bar}{bar:20}{r_bar}{bar:-10b}',
+                            desc="Processing", leave=False)
+
         for text, annotations in prep_data:
             predict = self.nlp(text)
             example = Example.from_dict(predict, annotations)
             example.predicted = self.nlp(str(example.predicted))
             examples.append(example)
+            progress_bar.update(1)
 
         scores = scorer.score_spans(examples, "ents")
-        print("\nPrecision: {} \nRecall: {} \nF1-score: {}\n".format(scores['ents_p'],
+        print("    \nPrecision: {} \nRecall: {} \nF1-score: {}\n".format(scores['ents_p'],
                                                                      scores['ents_r'],
                                                                      scores['ents_f']))
 
-    def rollback_changes(self):
+    # A function to rollback changes made to the model
+    @staticmethod
+    def rollback_changes():
         dst_dir = 'copy_ner_model'
 
         # copy the directory and its contents to the destination directory
@@ -157,6 +175,7 @@ class NER:
         shutil.move(dst_dir, 'ner_model')
 
 
+# Creating a class to encode numpy types into json
 class NpEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):
@@ -168,7 +187,15 @@ class NpEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
+# Creating a function to run the model based on the user's input
 def run(args, ner_model):
+    # Processing incorrect input
+    if (args.predict and args.evaluate) or (args.predict
+                     and args.fit) or (args.fit and args.evaluate) or (args.rollback
+                     and args.predict) or (args.rollback and args.fit):
+        print("Incorrect input format. Use python model.py -h for help.")
+        return
+    # Predicting the label of a text or json file
     if args.predict:
         if args.input == "default":
             print("\nId:")
@@ -182,6 +209,7 @@ def run(args, ner_model):
         else:
             ner_model.predict(args.input, args.out, args.verbose, is_json=False)
 
+    # Fitting the model
     if args.fit:
         if args.input == 'default':
             path = DEFAULT_TRAIN_DATA_PATH
@@ -190,6 +218,7 @@ def run(args, ner_model):
             path = args.input
             ner_model.fit(path)
 
+    # Evaluating the model
     if args.evaluate:
         if args.input == 'default':
             path = DEFAULT_EVAL_DATA_PATH
@@ -198,10 +227,12 @@ def run(args, ner_model):
             path = args.input
             ner_model.evaluate(path)
 
+    # Rolling back changes made to the model
     if args.rollback:
-        ner_model.rollback_changes()
+        NER.rollback_changes()
 
 
+# A function to get the arguments from the user's input
 def get_args():
     parser = argparse.ArgumentParser(
         description="NER",
